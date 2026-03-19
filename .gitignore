@@ -39,6 +39,7 @@ Thumbs.db
 
 # Project specific
 *.pkl
-!model.pkl
-#!best_model_logistic.pkl
-#!final_model.pkl
+!best_model_logistic.pkl
+
+# Database (too large for git)
+*.db
