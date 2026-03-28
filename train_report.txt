@@ -1,0 +1,60 @@
+ОТЧЁТ ОБ ОБУЧЕНИИ МОДЕЛИ
+============================================================
+
+Дата обучения: 2026-03-27 11:41:13
+
+ПАРАМЕТРЫ МОДЕЛИ:
+----------------------------------------
+  boosting_type: goss
+  class_weight: None
+  colsample_bytree: 0.78
+  importance_type: split
+  learning_rate: 0.01
+  max_depth: 4
+  min_child_samples: 40
+  min_child_weight: 0.001
+  min_split_gain: 0.0
+  n_estimators: 900
+  n_jobs: None
+  num_leaves: 18
+  objective: binary
+  random_state: 42
+  reg_alpha: 1.5
+  reg_lambda: 15
+  subsample: 1.0
+  subsample_for_bin: 200000
+  subsample_freq: 0
+  metric: auc
+  verbose: -1
+
+----------------------------------------
+МЕТРИКИ НА ВАЛИДАЦИИ:
+----------------------------------------
+  roc_auc: 0.9554
+  brier: 0.0847
+  accuracy: 0.8879
+
+----------------------------------------
+МЕТРИКИ НА ТЕСТЕ:
+----------------------------------------
+  roc_auc: 0.9431
+  brier: 0.0956
+  accuracy: 0.8468
+
+----------------------------------------
+ВАЖНОСТЬ ПРИЗНАКОВ:
+----------------------------------------
+                   feature  importance
+      map_recent_form_diff        1106
+              form_diff_10         863
+         map_strength_diff         642
+           form_x_map_form         601
+  map_ct_side_winrate_diff         548
+           map_sample_diff         504
+          sos_form_diff_10         491
+   map_t_side_winrate_diff         460
+ recent_matches_count_diff         406
+              rating_x_sos         310
+              delta_rating         264
+     rating_x_map_strength         264
+days_since_last_match_diff           0
