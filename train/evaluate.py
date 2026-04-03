@@ -32,6 +32,23 @@ def load_model(model_path: str = 'model_lgbm.pkl') -> lgb.LGBMClassifier:
     return joblib.load(model_path)
 
 
+def get_calibrated_proba(model: lgb.LGBMClassifier, X: np.ndarray) -> np.ndarray:
+    """
+    Возвращает откалиброванные вероятности с учётом temperature scaling.
+    """
+    raw_proba = model.predict_proba(X)[:, 1]
+
+    # Если модель имеет temperature_, применяем калибровку
+    if hasattr(model, 'temperature_') and model.temperature_ is not None:
+        eps = 1e-7
+        probs_clipped = np.clip(raw_proba, eps, 1 - eps)
+        logits = np.log(probs_clipped / (1 - probs_clipped))
+        scaled_logits = logits / model.temperature_
+        return 1 / (1 + np.exp(-scaled_logits))
+
+    return raw_proba
+
+
 def load_test_data(features_path: str = 'features.csv') -> pd.DataFrame:
     """
     Загружает данные и возвращает тестовую выборку (последние ~15% по датам).
@@ -86,6 +103,9 @@ def check_symmetry(
     Для случайных пар из тестовой выборки вычисляет предсказание для (A,B) и (B,A).
     Должно быть: pred_ab ≈ -pred_ba (или prob_ab ≈ 1 - prob_ba)
 
+    ПРОВЕРКА НА СЫРЫХ ВЕРОЯТНОСТЯХ (без калибровки), т.к. temperature scaling
+    нарушает симметричность нелинейным преобразованием.
+
     Returns:
         mean_error: средняя ошибка симметричности
     """
@@ -105,11 +125,7 @@ def check_symmetry(
         # Все дельта-признаки инвертируются
         X_inv = -X_orig.copy()
 
-        # map_name и is_lan остаются теми же (они одинаковы для обеих команд)
-        # Но в наших признаках map_name не входит в feature_cols (категориальный)
-        # is_lan тоже не входит (он одинаков)
-
-        # Предсказания (вероятности класса 1 - победа team1)
+        # Предсказания на СЫРЫХ вероятностях модели (без калибровки)
         prob_orig = model.predict_proba(X_orig)[0, 1]
         prob_inv = model.predict_proba(X_inv)[0, 1]
 
@@ -126,11 +142,12 @@ def check_symmetry(
     print(f"Проверено пар: {len(errors)}")
     print(f"Средняя ошибка симметричности: {mean_error:.6f}")
     print(f"  (идеал: 0, допустимо: < 0.05)")
+    print(f"  Проверка на сырых вероятностях (без калибровки)")
 
     if mean_error < 0.05:
-        print("✓ Модель симметрична")
+        print("[OK] Модель симметрична")
     else:
-        print("✗ Модель недостаточно симметрична")
+        print("[FAIL] Модель недостаточно симметрична")
 
     return mean_error
 
@@ -145,8 +162,8 @@ def compute_metrics(
     feature_cols = get_feature_columns()
     X_test, y_test = prepare_data(test_df, feature_cols)
 
-    # Предсказания (вероятности)
-    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    # Предсказания (вероятности) - используем калиброванные
+    y_pred_proba = get_calibrated_proba(model, X_test)
 
     # Предсказания классов
     y_pred = (y_pred_proba >= 0.5).astype(int)
@@ -236,9 +253,9 @@ def plot_predictions_distribution(
 
 
 def evaluate_full(
-    model_path: str = 'model_lgbm.pkl',
-    features_path: str = 'features.csv',
-    report_path: str = 'evaluate_report.txt'
+    model_path: str = '../models/model_lgbm.pkl',
+    features_path: str = '../data/features.csv',
+    report_path: str = '../data/evaluate_report.txt'
 ) -> Dict:
     """
     Полный пайплайн оценки модели.
@@ -281,13 +298,13 @@ def evaluate_full(
     plot_calibration_curve(
         metrics['y_test'],
         metrics['y_pred_proba'],
-        output_path='calibration_curve.png'
+        output_path='../png/calibration_curve.png'
     )
 
     plot_predictions_distribution(
         metrics['y_pred_proba'],
         metrics['y_test'],
-        output_path='predictions_distribution.png'
+        output_path='../png/predictions_distribution.png'
     )
 
     # Сохранение отчёта
@@ -300,9 +317,9 @@ def evaluate_full(
         f.write("-" * 40 + "\n")
         f.write(f"  Средняя ошибка: {symmetry_error:.6f}\n")
         if symmetry_error < 0.05:
-            f.write("  Статус: ✓ Модель симметрична\n")
+            f.write("  Статус: OK - модель симметрична\n")
         else:
-            f.write("  Статус: ✗ Модель недостаточно симметрична\n")
+            f.write("  Статус: FAIL - модель недостаточно симметрична\n")
 
         f.write("\n" + "-" * 40 + "\n")
         f.write("МЕТРИКИ НА ТЕСТЕ:\n")
@@ -316,9 +333,9 @@ def evaluate_full(
         f.write("-" * 40 + "\n")
         f.write(f"  Целевой ROC-AUC: > 0.68\n")
         if metrics['roc_auc'] > 0.68:
-            f.write(f"  Статус: ✓ ДОСТИГНУТ ({metrics['roc_auc']:.4f})\n")
+            f.write(f"  Статус: OK - ДОСТИГНУТ ({metrics['roc_auc']:.4f})\n")
         else:
-            f.write(f"  Статус: ✗ НЕ ДОСТИГНУТ ({metrics['roc_auc']:.4f})\n")
+            f.write(f"  Статус: FAIL - НЕ ДОСТИГНУТ ({metrics['roc_auc']:.4f})\n")
 
         f.write("\n" + "-" * 40 + "\n")
         f.write("ГРАФИКИ:\n")
@@ -346,11 +363,11 @@ if __name__ == '__main__':
     print("=" * 60)
 
     if results['roc_auc'] > 0.68:
-        print(f"✓ Целевой ROC-AUC > 0.68 достигнут: {results['roc_auc']:.4f}")
+        print(f"[OK] Целевой ROC-AUC > 0.68 достигнут: {results['roc_auc']:.4f}")
     else:
-        print(f"✗ Целевой ROC-AUC > 0.68 не достигнут: {results['roc_auc']:.4f}")
+        print(f"[FAIL] Целевой ROC-AUC > 0.68 не достигнут: {results['roc_auc']:.4f}")
 
     if results['symmetry_error'] < 0.05:
-        print(f"✓ Модель симметрична (ошибка: {results['symmetry_error']:.6f})")
+        print(f"[OK] Модель симметрична (ошибка: {results['symmetry_error']:.6f})")
     else:
-        print(f"✗ Модель недостаточно симметрична (ошибка: {results['symmetry_error']:.6f})")
+        print(f"[FAIL] Модель недостаточно симметрична (ошибка: {results['symmetry_error']:.6f})")

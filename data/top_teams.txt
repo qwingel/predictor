@@ -1,0 +1,30 @@
+1: "Vitality", 1000
+2: "Furia", 482
+3: "Natus Vincere", 464
+4: "Falcons", 410
+5: "PARIVISION", 381
+6: "Mouz", 371
+7: "Aurora", 357
+8: "The MongolZ", 310
+9: "Spirit", 307
+10: "Astralis", 191
+11: "Faze", 190
+12: "G2", 147
+13: "FUT", 144
+14: "Legacy", 89
+15: "3DMAX", 81
+16: "HEROIC", 73
+17: "9z", 69
+18: "Liquid", 69
+19: "paiN", 65
+20: "B8", 59
+21: "TYLOO", 57
+22: "GamerLegion", 57
+23: "Monte", 48
+24: "Ninjas In Pyjamas", 48
+25: "NRG", 47
+26: "Gentle Mates", 45
+27: "SINNERS", 41
+28: "BetBoom", 37
+29: "HOTU", 35
+30: "Passion UA", 34

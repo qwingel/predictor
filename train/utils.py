@@ -34,7 +34,7 @@ def normalize_team_name(team_name: str) -> str:
     return TEAM_MAPPING.get(lower, lower)
 
 
-def load_team_ratings(filepath: str) -> Dict[str, float]:
+def load_team_ratings(filepath: str = "data/top_teams.txt") -> Dict[str, float]:
     """
     Загружает рейтинги команд из top_teams.txt с нормализованными именами.
 
@@ -80,6 +80,10 @@ def step_weight(days_ago: float) -> float:
     """
     if days_ago < 0:
         return 0.0
+    elif days_ago <= 7:
+        return 1.5
+    elif days_ago <= 30:
+        return 1.2
     elif days_ago <= 90:
         return 1.0
     elif days_ago <= 180:

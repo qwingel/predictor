@@ -6,6 +6,12 @@
 
 Проект представляет собой симметричную модель на основе **LightGBM** с `boosting_type='goss'` для предсказания исхода конкретной карты в матче CS2. Модель учитывает форму команд, статистику на карте, рейтинги и другие факторы.
 
+Поддерживает:
+- Предсказание для одной карты
+- Предсказание для всех карт матча (`predict_for_all_maps`)
+- Рекомендации по ставкам с расчётом EV и критерием Келли (`bet_recommendation`)
+- Пост-матч анализ через Telegram-модуль
+
 ## Быстрый старт
 
 ### Установка зависимостей
@@ -17,6 +23,7 @@ pip install -r requirements.txt
 ### Запуск полного пайплайна
 
 ```bash
+cd train
 python main.py
 ```
 
@@ -32,8 +39,8 @@ python main.py
 
 | Файл | Описание |
 |------|----------|
-| `cs2_data.db` | SQLite база с матчами и картами |
-| `top_teams.txt` | Рейтинги команд (формат HLTV) |
+| `data/cs2_data.db` | SQLite база с матчами и картами |
+| `data/top_teams.txt` | Рейтинги команд (формат HLTV) |
 
 ### Формат базы данных
 
@@ -63,7 +70,7 @@ id, match_id, map_name, team1_score, team2_score, y
 from predict import predict_match, load_model
 
 # Загрузка модели
-model = load_model('model_lgbm.pkl')
+model = load_model('models/model_lgbm.pkl')
 
 # Предсказание
 result = predict_match(
@@ -74,7 +81,33 @@ result = predict_match(
     is_lan=1  # LAN турнир
 )
 
-print(f"Вероятность победы {result['prediction']}: {max(result['prob_team1'], result['prob_team2']):.2%}")
+print(f"Вероятность победы: {max(result['prob_team1'], result['prob_team2']):.2%}")
+```
+
+### Предсказание для всех карт матча
+
+```python
+from predict import predict_for_all_maps
+
+result = predict_for_all_maps(model, 'G2', 'GamerLegion', is_lan=1)
+
+for map_name, (winner, pred, p1, p2) in result.items():
+    print(f"{map_name}: {winner}, {p1:.2%} vs {p2:.2%}")
+```
+
+### Рекомендации по ставкам
+
+```python
+from bet_recommendation import evaluate_bet
+
+# Оценить ставку: модель дала 65%, букмекер даёт коэффициент 1.83
+result = evaluate_bet(model_prob=0.65, bookmaker_odds=1.83)
+
+print(result['recommendation'])   # "СТАВИТЬ" / "НЕ СТАВИТЬ" / "РИСК"
+print(result['bet_size_percent']) # размер ставки по Келли (доля от банка)
+print(result['ev'])               # математическое ожидание
+print(result['edge'])             # преимущество над линией
+print(result['fair_odds'])        # "справедливый" коэффициент модели
 ```
 
 ### Примеры предсказаний
@@ -85,6 +118,21 @@ result = predict_match(model, 'NAVI', 'FaZe', 'Mirage', is_lan=0)
 
 # LAN турнир
 result = predict_match(model, 'Vitality', 'Spirit', 'Ancient', is_lan=1)
+```
+
+### Пост-матч анализ (Telegram)
+
+Скрипт `telegram/reader_after_event.py` читает пары команд и карт из `after_event.txt` и делает предсказания.
+
+Формат `after_event.txt`:
+```
+Vitality,Furia,Inferno
+NAVI,G2,Mirage
+```
+
+```bash
+cd telegram
+python reader_after_event.py
 ```
 
 ## Архитектура
@@ -99,6 +147,16 @@ result = predict_match(model, 'Vitality', 'Spirit', 'Ancient', is_lan=1)
 | **Временные** | `days_since_last_match_diff`, `recent_matches_count_diff` |
 | **Карточные** | `map_strength_diff`, `map_recent_form_diff`, `map_t_side_winrate_diff`, `map_ct_side_winrate_diff`, `map_sample_diff` |
 | **Взаимодействия** | `rating_x_map_strength`, `form_x_map_form`, `rating_x_sos` |
+
+### Симметризация предсказаний
+
+Модель использует двойной проход для гарантированной симметричности:
+1. Прямой проход: `P(team1 | team1, team2)`
+2. Обратный проход: `P(team2 | team2, team1)` (с инвертированными признаками)
+3. Усреднение: `P_sym = (P_AB + (1 - P_BA)) / 2`
+4. Temperature scaling для калибровки
+
+Это гарантирует: `P(team1, team2) + P(team2, team1) = 1`
 
 ### Веса матчей
 
@@ -117,47 +175,21 @@ result = predict_match(model, 'Vitality', 'Spirit', 'Ancient', is_lan=1)
 
 | Набор | Доля | Период |
 |-------|------|--------|
-| Train | 70% | 2025-03-24 – 2025-11-20 |
-| Validation | 15% | 2025-11-21 – 2026-01-31 |
-| Test | 15% | 2026-02-02 – 2026-03-24 |
+| Train | 70% | 2025-03-24 - 2025-11-20 |
+| Validation | 15% | 2025-11-21 - 2026-01-31 |
+| Test | 15% | 2026-02-02 - 2026-03-24 |
 
 ## Результаты модели
 
-### Метрики на тестовой выборке
+### Метрики на тестовой выборке (после ретрейна, 2026-04-02)
 
 | Метрика | Значение | Цель | Статус |
 |---------|----------|------|--------|
-| **ROC-AUC** | **0.9431** | > 0.68 | ✓ ДОСТИГНУТ |
-| Brier Score | 0.0956 | - | - |
-| Accuracy | 84.68% | - | - |
+| **ROC-AUC** | **0.7020** | > 0.68 | ДОСТИГНУТ |
+| Brier Score | 0.2198 | - | - |
+| Accuracy | 65.69% | - | - |
 
-### Симметричность
-
-- Средняя ошибка симметричности: **0.0361** (требуется < 0.05)
-- Статус: ✓ Модель симметрична
-
-### Проверка на переобучение
-
-| Выборка | ROC-AUC |
-|---------|---------|
-| Train | 0.9604 |
-| Validation | 0.9557 |
-| Test | 0.9415 |
-| **Gap (Train-Test)** | **0.0189** |
-
-Разница < 0.05 указывает на отсутствие переобучения.
-
-### Важность признаков (топ-5)
-
-| Признак | Важность | % |
-|---------|----------|---|
-| `map_recent_form_diff` | 1129 | 17.6% |
-| `form_diff_10` | 815 | 12.7% |
-| `form_x_map_form` | 638 | 9.9% |
-| `map_strength_diff` | 632 | 9.8% |
-| `map_ct_side_winrate_diff` | 532 | 8.3% |
-
-## Параметры модели
+### Параметры модели
 
 ```python
 {
@@ -178,48 +210,93 @@ result = predict_match(model, 'Vitality', 'Spirit', 'Ancient', is_lan=1)
 
 ```
 predictor/
-├── main.py                 # Точка входа, полный пайплайн
-├── features.py             # Построение признаков
-├── train.py                # Обучение модели
-├── evaluate.py             # Оценка качества
-├── predict.py              # Предсказания для новых матчей
-├── utils.py                # Вспомогательные функции
-├── normalize_data.py       # Нормализация данных
-├── validate_model.py       # Валидация модели
-├── requirements.txt        # Зависимости Python
-├── cs2_data.db             # База данных матчей
-├── top_teams.txt           # Рейтинги команд
-├── model_lgbm.pkl          # Обученная модель
-├── features.csv            # Признаки для обучения
-├── train_report.txt        # Отчёт об обучении
-├── evaluate_report.txt     # Отчёт об оценке
-├── calibration_curve.png   # Калибровочная кривая
-└── predictions_distribution.png
+├── predict.py                  # Предсказания + predict_for_all_maps
+├── bet_recommendation.py       # Рекомендации по ставкам (EV, Kelly)
+├── validate_model.py           # Валидация модели
+├── requirements.txt            # Зависимости Python
+├── README.md                   # Этот файл
+│
+├── train/
+│   ├── main.py                 # Точка входа, полный пайплайн
+│   ├── features.py             # Построение признаков
+│   ├── train.py                # Обучение модели
+│   ├── train_with_all_matches.py # Обучение на всех матчах
+│   ├── evaluate.py             # Оценка качества
+│   ├── utils.py                # Утилиты (нормализация, веса)
+│   └── normalize_data.py       # Нормализация данных
+│
+├── data/
+│   ├── cs2_data.db             # База данных матчей
+│   ├── top_teams.txt           # Рейтинги команд
+│   ├── features.csv            # Построенные признаки
+│   ├── train_report.txt        # Отчёт об обучении
+│   ├── final_train_report.txt  # Финальный отчёт об обучении
+│   └── evaluate_report.txt     # Отчёт об оценке
+│
+├── models/
+│   ├── model_lgbm.pkl          # Обученная модель
+│   └── model_lgbm_final.pkl    # Финальная модель (ретрейн)
+│
+├── png/
+│   ├── calibration_curve.png   # Калибровочная кривая
+│   └── predictions_distribution.png  # Распределение предсказаний
+│
+└── telegram/
+    ├── after_event.txt         # Входные данные для пост-анализа
+    └── reader_after_event.py   # Скрипт пост-матч анализа
 ```
 
 ## Модули
 
-### main.py
-Запускает полный пайплайн: построение признаков → обучение → оценка.
+### train/main.py
+Запускает полный пайплайн: построение признаков -> обучение -> оценка.
 
-### features.py
+### train/features.py
 Извлекает данные из SQLite, вычисляет признаки с использованием скользящих окон и кэширования.
 
-### train.py
-Обучает LightGBM модель с временным сплитом и весами матчей.
+### train/train.py
+Обучает LightGBM модель с временным сплитом и весами матчей. Сохраняет модель и отчёт.
 
-### evaluate.py
+### train/train_with_all_matches.py
+Альтернативный скрипт обучения на всех доступных матчах (без разбиения на train/test).
+
+### train/evaluate.py
 Оценивает качество модели: ROC-AUC, Brier Score, Accuracy, проверка симметричности, калибровочная кривая.
 
-### predict.py
-API для предсказания исхода конкретного матча между двумя командами.
-
-### utils.py
+### train/utils.py
 Вспомогательные функции:
-- `normalize_team_name()` — нормализация названий команд
-- `load_team_ratings()` — загрузка рейтингов из файла
-- `step_weight()` — ступенчатая схема весов
-- `rolling_weighted_mean()` — взвешенное скользящее среднее
+- `normalize_team_name()` - нормализация названий команд (lowercase + маппинг)
+- `load_team_ratings()` - загрузка рейтингов из файла
+- `get_team_rating()` - получение рейтинга команды с fallback
+- `step_weight()` - ступенчатая схема весов по давности
+- `rolling_weighted_mean()` - взвешенное скользящее среднее
+
+### predict.py
+API для предсказаний:
+- `predict_match()` - предсказание для одной карты с симметризацией и temperature scaling
+- `predict_for_all_maps()` - предсказание для всех 7 карт CS2 за один вызов
+- `predict_match_swapped()` - проверка симметричности предсказаний
+
+### bet_recommendation.py
+Расчёт рекомендаций по ставкам:
+- `evaluate_bet()` - полная оценка ставки (EV, edge, Kelly, confidence)
+- `calculate_ev()` - математическое ожидание ставки
+- `calculate_kelly_size()` - оптимальный размер ставки по критерию Келли (25% fractional)
+- `calculate_confidence_interval()` - доверительный интервал вероятности
+
+Логика принятия решений:
+| Условие | Рекомендация |
+|---------|-------------|
+| EV <= 0 | НЕ СТАВИТЬ |
+| EV > 0, но edge < 3% | НЕ СТАВИТЬ |
+| EV > 0, edge >= 3%, EV_lower < 0 | РИСК |
+| EV > 0, edge >= 3%, EV_lower >= 0 | СТАВИТЬ |
+
+### validate_model.py
+Валидация модели: проверка на утечку данных, стабильность признаков, корректность симметризации.
+
+### telegram/reader_after_event.py
+Скрипт пост-матч анализа. Читает пары команд из `after_event.txt` (формат: `team1,team2,map`), делает предсказания и сохраняет результаты.
 
 ## Зависимости
 
@@ -235,13 +312,17 @@ tqdm>=4.65.0
 
 ## Особенности
 
-1. **Нормализация имён команд**: Все названия автоматически приводятся к lowercase с применением маппинга известных вариаций (NAVI → natus vincere, Furia → furia, и т.д.)
+1. **Нормализация имён команд**: Все названия автоматически приводятся к lowercase с применением маппинга известных вариаций (NAVI -> natus vincere, Furia -> furia, и т.д.)
 
-2. **Симметричность модели**: При перестановке команд местами предсказание инвертируется: `P(team1, team2) ≈ 1 - P(team2, team1)`
+2. **Симметричность модели**: При перестановке команд местами предсказание инвертируется: `P(team1, team2) = 1 - P(team2, team1)`. Достигается двойным проходом с инвертированными признаками.
 
 3. **Отсутствие утечки данных**: Идентификаторы и целевая переменная не входят в признаки, при расчёте используется фильтр по дате.
 
 4. **Кэширование вычислений**: Для ускорения используется кэш признаков команд.
+
+5. **Temperature scaling**: Калибровка вероятностей после симметризации для улучшения качества предсказаний.
+
+6. **Kelly criterion**: Оптимальный размер ставки рассчитывается по дробному Келли (25%) с ограничением 1-5% от банка.
 
 ## Лицензия
 

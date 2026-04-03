@@ -1,7 +1,7 @@
 ОТЧЁТ ОБ ОБУЧЕНИИ МОДЕЛИ
 ============================================================
 
-Дата обучения: 2026-03-27 11:41:13
+Дата обучения: 2026-04-02 15:07:10
 
 ПАРАМЕТРЫ МОДЕЛИ:
 ----------------------------------------
@@ -30,31 +30,31 @@
 ----------------------------------------
 МЕТРИКИ НА ВАЛИДАЦИИ:
 ----------------------------------------
-  roc_auc: 0.9554
-  brier: 0.0847
-  accuracy: 0.8879
+  roc_auc: 0.6674
+  brier: 0.2321
+  accuracy: 0.6058
 
 ----------------------------------------
 МЕТРИКИ НА ТЕСТЕ:
 ----------------------------------------
-  roc_auc: 0.9431
-  brier: 0.0956
-  accuracy: 0.8468
+  roc_auc: 0.6849
+  brier: 0.2230
+  accuracy: 0.6562
 
 ----------------------------------------
 ВАЖНОСТЬ ПРИЗНАКОВ:
 ----------------------------------------
                    feature  importance
-      map_recent_form_diff        1106
-              form_diff_10         863
-         map_strength_diff         642
-           form_x_map_form         601
-  map_ct_side_winrate_diff         548
-           map_sample_diff         504
-          sos_form_diff_10         491
-   map_t_side_winrate_diff         460
- recent_matches_count_diff         406
-              rating_x_sos         310
-              delta_rating         264
-     rating_x_map_strength         264
-days_since_last_match_diff           0
+              delta_rating         434
+           map_sample_diff         427
+ recent_matches_count_diff         334
+              form_diff_10         263
+          sos_form_diff_10         237
+  map_ct_side_winrate_diff         237
+days_since_last_match_diff         224
+              rating_x_sos         223
+   map_t_side_winrate_diff         194
+     rating_x_map_strength         177
+         map_strength_diff         173
+      map_recent_form_diff         148
+           form_x_map_form          89

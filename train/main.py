@@ -30,9 +30,9 @@ def main():
     from features import build_features
 
     features_df = build_features(
-        db_path='cs2_data.db',
-        ratings_path='top_teams.txt',
-        output_path='features.csv',
+        db_path='../data/cs2_data.db',
+        ratings_path='../data/top_teams.txt',
+        output_path='../data/features.csv',
         verbose=True
     )
 
@@ -46,9 +46,9 @@ def main():
     from train import train_and_save
 
     model, test_metrics = train_and_save(
-        features_path='features.csv',
-        model_path='model_lgbm.pkl',
-        report_path='train_report.txt'
+        features_path='../data/features.csv',
+        model_path='../models/model_lgbm.pkl',
+        report_path='../data/train_report.txt'
     )
 
     print(f"\n[OK] Model obuchena, ROC-AUC na teste: {test_metrics['roc_auc']:.4f}")
@@ -61,9 +61,9 @@ def main():
     from evaluate import evaluate_full
 
     eval_results = evaluate_full(
-        model_path='model_lgbm.pkl',
-        features_path='features.csv',
-        report_path='evaluate_report.txt'
+        model_path='../models/model_lgbm.pkl',
+        features_path='../data/features.csv',
+        report_path='../data/evaluate_report.txt'
     )
 
     # Итоговый вывод

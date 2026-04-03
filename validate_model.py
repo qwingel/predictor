@@ -19,7 +19,7 @@ def check_identifiers():
     print("ПРОВЕРКА 1: ИДЕНТИФИКАТОРЫ В ПРИЗНАКАХ")
     print("=" * 60)
 
-    df = pd.read_csv('features.csv')
+    df = pd.read_csv('data/features.csv')
     feature_cols = [
         'delta_rating', 'form_diff_10', 'sos_form_diff_10',
         'days_since_last_match_diff', 'recent_matches_count_diff',
@@ -45,7 +45,7 @@ def check_target_correlation():
     print("ПРОВЕРКА 2: КОРРЕЛЯЦИЯ ПРИЗНАКОВ С Y")
     print("=" * 60)
 
-    df = pd.read_csv('features.csv')
+    df = pd.read_csv('data/features.csv')
     feature_cols = [
         'delta_rating', 'form_diff_10', 'sos_form_diff_10',
         'days_since_last_match_diff', 'recent_matches_count_diff',
@@ -79,7 +79,7 @@ def check_temporal_split():
     print("ПРОВЕРКА 3: ВРЕМЕННОЙ СПЛИТ")
     print("=" * 60)
 
-    df = pd.read_csv('features.csv')
+    df = pd.read_csv('data/features.csv')
     df['date'] = pd.to_datetime(df['date'])
 
     unique_dates = sorted(df['date'].unique())
@@ -115,8 +115,8 @@ def check_overfitting():
     print("ПРОВЕРКА 4: ПЕРЕОБУЧЕНИЕ")
     print("=" * 60)
 
-    model = joblib.load('model_lgbm.pkl')
-    df = pd.read_csv('features.csv')
+    model = joblib.load('models/model_lgbm.pkl')
+    df = pd.read_csv('data/features.csv')
     df['date'] = pd.to_datetime(df['date'])
 
     feature_cols = [
@@ -177,7 +177,7 @@ def check_feature_importance():
     print("ПРОВЕРКА 5: ВАЖНОСТЬ ПРИЗНАКОВ")
     print("=" * 60)
 
-    model = joblib.load('model_lgbm.pkl')
+    model = joblib.load('models/model_lgbm.pkl')
     feature_cols = [
         'delta_rating', 'form_diff_10', 'sos_form_diff_10',
         'days_since_last_match_diff', 'recent_matches_count_diff',

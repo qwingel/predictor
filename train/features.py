@@ -55,7 +55,8 @@ def compute_form_for_team(
     games_df: pd.DataFrame,
     target_date: datetime,
     window_maps: int = 10,
-    ratings: Dict[str, float] = None
+    ratings: Dict[str, float] = None,
+    exclude_match_id: int = None   # <-- добавить
 ) -> Tuple[float, float, int]:
     """
     Вычисляет форму команды за последние window_maps карт.
@@ -78,6 +79,9 @@ def compute_form_for_team(
         ((matches_df['team1_name'] == team_name) | (matches_df['team2_name'] == team_name)) &
         (matches_df['date'] <= pd.Timestamp(target_date))
     ].copy()
+
+    if exclude_match_id is not None:
+        team_matches = team_matches[team_matches['id'] != exclude_match_id]
 
     if len(team_matches) == 0:
         return np.nan, np.nan, 999
@@ -158,7 +162,8 @@ def compute_map_stats_for_team(
     matches_df: pd.DataFrame,
     games_df: pd.DataFrame,
     target_date: datetime,
-    window_days: int = 365
+    window_days: int = 365,
+    exclude_match_id: int = None   # <-- добавить
 ) -> Tuple[float, float, float, float, int]:
     """
     Вычисляет статистику команды на конкретной карте.
@@ -183,6 +188,9 @@ def compute_map_stats_for_team(
         ((matches_df['team1_name'] == team_name) | (matches_df['team2_name'] == team_name)) &
         (matches_df['date'] <= pd.Timestamp(target_date))
     ].copy()
+
+    if exclude_match_id is not None:
+        team_matches = team_matches[team_matches['id'] != exclude_match_id]
 
     if len(team_matches) == 0:
         return np.nan, np.nan, np.nan, np.nan, 0
@@ -278,7 +286,8 @@ def compute_recent_matches_count(
     team_name: str,
     matches_df: pd.DataFrame,
     target_date: datetime,
-    window_days: int = 14
+    window_days: int = 14,
+    exclude_match_id: int = None
 ) -> int:
     """
     Количество матчей команды за последние window_days дней.
@@ -288,13 +297,17 @@ def compute_recent_matches_count(
         (matches_df['date'] <= pd.Timestamp(target_date)) &
         (matches_df['date'] >= pd.Timestamp(target_date) - timedelta(days=window_days))
     ]
+
+    if exclude_match_id is not None:
+        recent = recent[recent['id'] != exclude_match_id]
+
     return len(recent)
 
 
 def build_features(
-    db_path: str = 'cs2_data.db',
-    ratings_path: str = 'top_teams.txt',
-    output_path: str = 'features.csv',
+    db_path: str = 'data/cs2_data.db',
+    ratings_path: str = 'data/top_teams.txt',
+    output_path: str = 'data/features.csv',
     verbose: bool = True
 ) -> pd.DataFrame:
     """
@@ -352,6 +365,7 @@ def build_features(
         map_name = row['map_name']
         team1 = row['team1_name']
         team2 = row['team2_name']
+        match_id = row['match_id']
 
         # Рейтинг
         rating1 = get_team_rating(team1, ratings, 0)
@@ -361,7 +375,7 @@ def build_features(
         # Форма (за последние 10 карт)
         if team1 not in team_form_cache or team_form_cache[team1]['date'] != date:
             form1, sos1, days1 = compute_form_for_team(
-                team1, matches_df, games_df, date, 10, ratings
+                team1, matches_df, games_df, date, 10, ratings, exclude_match_id=match_id
             )
             team_form_cache[team1] = {'date': date, 'form': form1, 'sos': sos1, 'days': days1}
         else:
@@ -371,7 +385,7 @@ def build_features(
 
         if team2 not in team_form_cache or team_form_cache[team2]['date'] != date:
             form2, sos2, days2 = compute_form_for_team(
-                team2, matches_df, games_df, date, 10, ratings
+                team2, matches_df, games_df, date, 10, ratings, exclude_match_id=match_id
             )
             team_form_cache[team2] = {'date': date, 'form': form2, 'sos': sos2, 'days': days2}
         else:
@@ -384,8 +398,8 @@ def build_features(
         days_since_diffs.append(min(days1 - days2, 30))  # capped at 30
 
         # Количество матчей за последние 14 дней
-        matches1 = compute_recent_matches_count(team1, matches_df, date, 14)
-        matches2 = compute_recent_matches_count(team2, matches_df, date, 14)
+        matches1 = compute_recent_matches_count(team1, matches_df, date, 14, exclude_match_id=match_id)
+        matches2 = compute_recent_matches_count(team2, matches_df, date, 14, exclude_match_id=match_id)
         recent_matches_diffs.append(matches1 - matches2)
 
         # Карточная статистика
@@ -394,7 +408,7 @@ def build_features(
 
         if cache_key1 not in team_map_cache or team_map_cache[cache_key1]['date'] != date:
             ms1, mrf1, mt1, mct1, mc1 = compute_map_stats_for_team(
-                team1, map_name, matches_df, games_df, date, 365
+                team1, map_name, matches_df, games_df, date, 365, exclude_match_id=match_id
             )
             team_map_cache[cache_key1] = {
                 'date': date, 'ms': ms1, 'mrf': mrf1, 'mt': mt1, 'mct': mct1, 'mc': mc1
@@ -408,7 +422,7 @@ def build_features(
 
         if cache_key2 not in team_map_cache or team_map_cache[cache_key2]['date'] != date:
             ms2, mrf2, mt2, mct2, mc2 = compute_map_stats_for_team(
-                team2, map_name, matches_df, games_df, date, 365
+                team2, map_name, matches_df, games_df, date, 365, exclude_match_id=match_id
             )
             team_map_cache[cache_key2] = {
                 'date': date, 'ms': ms2, 'mrf': mrf2, 'mt': mt2, 'mct': mct2, 'mc': mc2

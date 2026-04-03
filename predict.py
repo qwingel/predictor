@@ -18,11 +18,12 @@ import pandas as pd
 import numpy as np
 import joblib
 from datetime import datetime
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Tuple
 import sqlite3
 
-from utils import load_team_ratings, get_team_rating, step_weight, normalize_team_name
-
+from train.calibration import apply_temperature
+from train.utils import load_team_ratings, get_team_rating, step_weight, normalize_team_name
+from bet_recommendation import evaluate_bet
 
 def load_data(db_path: str = 'cs2_data.db') -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -70,7 +71,7 @@ def find_team_in_db(team_name: str, matches_df: pd.DataFrame) -> str:
     return normalized_input
 
 
-def load_model(model_path: str = 'model_lgbm.pkl'):
+def load_model(model_path: str = 'models/model_lgbm.pkl'):
     """
     Загружает обученную модель LightGBM.
     """
@@ -288,10 +289,10 @@ def predict_match(
     team1: str,
     team2: str,
     map_name: str,
-    is_lan: int = 0,
+    is_lan: int = 1,
     reference_date: datetime = None,
-    db_path: str = 'cs2_data.db',
-    ratings_path: str = 'top_teams.txt'
+    db_path: str = 'data/cs2_data.db',
+    ratings_path: str = 'data/top_teams.txt'
 ) -> Dict:
     """
     Предсказывает исход матча между двумя командами на конкретной карте.
@@ -414,16 +415,38 @@ def predict_match(
         'rating_x_sos': [rating_x_sos]
     })
 
-    # Предсказание
-    prob_team1 = model.predict_proba(X)[0, 1]
+    # Предсказание с симметризацией:
+    # 1. Делаем два прохода (A,B) и (B,A) на сырых вероятностях
+    # 2. Усредняем: prob_sym = (prob_ab + (1 - prob_ba)) / 2
+    # 3. Применяем temperature scaling к симметризированной вероятности
+    # Это гарантирует идеальную симметрию: prob(A,B) + prob(B,A) = 1
+
+    raw_prob_ab = model.predict_proba(X)[0, 1]
+
+    # Инвертируем признаки для прохода (B,A)
+    X_swapped = -X.copy()
+    raw_prob_ba = model.predict_proba(X_swapped)[0, 1]
+
+    # Симметризация на сырых вероятностях
+    raw_prob_sym = (raw_prob_ab + (1 - raw_prob_ba)) / 2
+
+    # Применяем temperature scaling
+    if hasattr(model, 'temperature_'):
+        prob_team1 = apply_temperature(np.array([raw_prob_sym]), model.temperature_)[0]
+    else:
+        prob_team1 = raw_prob_sym
+
     prob_team2 = 1 - prob_team1
-    prediction = 1 if prob_team1 >= 0.5 else 2
+    prediction = -1 if prob_team1 >= 0.5 else 1
 
     return {
         'prob_team1': prob_team1,
         'prob_team2': prob_team2,
         'prediction': prediction,
-        'features': X.to_dict('records')[0]
+        'features': X.to_dict('records')[0],
+        'raw_prob_ab': raw_prob_ab,
+        'raw_prob_ba': raw_prob_ba,
+        'raw_prob_sym': raw_prob_sym
     }
 
 
@@ -434,8 +457,8 @@ def predict_match_swapped(
     map_name: str,
     is_lan: int = 0,
     reference_date: datetime = None,
-    db_path: str = 'cs2_data.db',
-    ratings_path: str = 'top_teams.txt'
+    db_path: str = 'data/cs2_data.db',
+    ratings_path: str = 'data/top_teams.txt'
 ) -> Tuple[Dict, Dict]:
     """
     Предсказывает исход матча и проверяет симметричность.
@@ -452,25 +475,66 @@ def predict_match_swapped(
 
     return result_ab, result_ba
 
+def predict_for_all_maps(model, team1: str, team2: str, is_lan: int = 1):
+    data = dict()
+    map_list = ["Inferno", "Mirage", "Dust2", "Ancient", "Anubis", "Nuke", "overpass"]
+    map_count = len(map_list)
+    prediction = 0
+    probability1 = 0
+    probability2 = 0
+    for map_name in map_list:
+        result = predict_match(
+            model,
+            team1=team1,
+            team2=team2,
+            map_name=map_name,
+            is_lan=is_lan
+        )
+        prediction   += result["prediction"]
+        probability1 += result["prob_team1"]
+        probability2 += result["prob_team2"]
+        data[map_name] = [team1 if result["prediction"] == -1 else team2, result["prediction"], result["prob_team1"], result["prob_team2"]]
+
+    data['general'] = [team1 if prediction < 0 else team2, prediction, probability1 / map_count, probability2 / map_count]
+    return data
 
 if __name__ == '__main__':
     # Пример использования
     print("Загрузка модели...")
-    model = load_model()
+    model = load_model('models/model_lgbm_final.pkl')
 
-    team1_name = "PARIVISION"
-    team2_name = "Falcons"
-    map_name = "Anubis"
+    team1_name = "G2"
+    team2_name = "GamerLegion"
+    # map_name = "Ancient"
+    #
+    # result = predict_match(model, team1_name, team2_name, map_name=map_name, is_lan=1)
+    # if result['prediction'] == 1:
+    #     print(f"Winner: {team2_name} with {result['prob_team2']:.2%}")
+    #     print(f"Looser: {team1_name} with {result['prob_team1']:.2%}")
+    # else:
+    #     print(f"Winner: {team1_name} with {result['prob_team1']:.2%}")
+    #     print(f"Looser: {team2_name} with {result['prob_team2']:.2%}")
 
-    print(f"\nПредсказание для матча: {team1_name} vs {team2_name} на карте {map_name}")
-    result = predict_match(
-        model,
-        team1=team1_name,
-        team2=team2_name,
-        map_name=map_name,
-        is_lan=1
-    )
+    # bet_min = evaluate_bet(min(result['prob_team1'], result['prob_team2']), 1.99)
+    # bet_max = evaluate_bet(max(result['prob_team1'], result['prob_team2']), 1.83)
 
-    print(f"  Вероятность победы {team1_name} (team1): {result['prob_team1']:.2%}")
-    print(f"  Вероятность победы {team2_name} (team2):    {result['prob_team2']:.2%}")
-    print(f"  Предсказание: Победа {team1_name if result['prediction'] == 1 else team2_name}")
+    result = predict_for_all_maps(model, team1_name, team2_name)
+
+    for map_name in result:
+        print(f"{map_name}:" + " " * (8 - len(
+            map_name) + 1) + f"победитель - {result[map_name][0]}({result[map_name][1]}), {result[map_name][2]:.2%} vs {result[map_name][3]:.2%}")
+
+    bet_min = evaluate_bet(min(result['general'][2], result['general'][3]), 2.64)
+    bet_max = evaluate_bet(max(result['general'][2], result['general'][3]), 1.49)
+
+    print("\n")
+    print("=" * 15 + "СТАВКА НА ФАВОРИТА" + "=" * 15)
+    print(bet_max['recommendation'])
+    print(bet_max['reason'])
+    print(bet_max['bet_size_percent'])
+
+    print("=" * 15 + "СТАВКА НА МЕНЬШИЙ КФ" + "=" * 15)
+    print(bet_min['recommendation'])
+    print(bet_min['reason'])
+    print(bet_min['bet_size_percent'])
+

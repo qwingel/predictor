@@ -12,6 +12,7 @@ import joblib
 import lightgbm as lgb
 from sklearn.metrics import roc_auc_score, brier_score_loss, accuracy_score
 
+from calibration import calibrate_model
 from utils import train_step_weight
 
 
@@ -186,10 +187,28 @@ def train_model(
     return model
 
 
+def get_calibrated_proba(model: lgb.LGBMClassifier, X: np.ndarray) -> np.ndarray:
+    """
+    Возвращает откалиброванные вероятности с учётом temperature scaling.
+    """
+    raw_proba = model.predict_proba(X)[:, 1]
+
+    # Если модель имеет temperature_, применяем калибровку
+    if hasattr(model, 'temperature_') and model.temperature_ is not None:
+        eps = 1e-7
+        probs_clipped = np.clip(raw_proba, eps, 1 - eps)
+        logits = np.log(probs_clipped / (1 - probs_clipped))
+        scaled_logits = logits / model.temperature_
+        return 1 / (1 + np.exp(-scaled_logits))
+
+    return raw_proba
+
+
 def evaluate_model(
     model: lgb.LGBMClassifier,
     test_df: pd.DataFrame,
-    prefix: str = "Test"
+    prefix: str = "Test",
+    use_calibration: bool = True
 ) -> Dict[str, float]:
     """
     Вычисляет метрики на тестовой выборке.
@@ -197,8 +216,11 @@ def evaluate_model(
     feature_cols = get_feature_columns()
     X_test, y_test, _ = prepare_data(test_df, feature_cols)
 
-    # Предсказания (вероятности класса 1)
-    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    # Предсказания (вероятности класса 1) - с калибровкой если доступна
+    if use_calibration and hasattr(model, 'temperature_'):
+        y_pred_proba = get_calibrated_proba(model, X_test)
+    else:
+        y_pred_proba = model.predict_proba(X_test)[:, 1]
 
     # Предсказания классов
     y_pred = (y_pred_proba >= 0.5).astype(int)
@@ -234,9 +256,9 @@ def get_feature_importance(model: lgb.LGBMClassifier) -> pd.DataFrame:
 
 
 def train_and_save(
-    features_path: str = 'features.csv',
-    model_path: str = 'model_lgbm.pkl',
-    report_path: str = 'train_report.txt'
+    features_path: str = '../data/features.csv',
+    model_path: str = '../models/model_lgbm.pkl',
+    report_path: str = '../data/train_report.txt'
 ) -> Tuple[lgb.LGBMClassifier, Dict]:
     """
     Полный пайплайн обучения и сохранения модели.
@@ -270,17 +292,24 @@ def train_and_save(
     print("\nОбучение модели...")
     model = train_model(train_df, val_df)
 
-    # Оценка на валидации
+    # Добавьте ЭТОТ БЛОК:
     print("\n" + "=" * 60)
-    print("ОЦЕНКА НА ВАЛИДАЦИИ")
+    print("КАЛИБРОВКА МОДЕЛИ (TEMPERATURE SCALING)")
     print("=" * 60)
-    val_metrics = evaluate_model(model, val_df, "Validation")
+    feature_cols = get_feature_columns()
+    model = calibrate_model(model, val_df, feature_cols)
 
-    # Оценка на тесте
+    # Оценка на валидации (с калиброванными вероятностями)
     print("\n" + "=" * 60)
-    print("ОЦЕНКА НА ТЕСТЕ")
+    print("ОЦЕНКА НА ВАЛИДАЦИИ (с калибровкой)")
     print("=" * 60)
-    test_metrics = evaluate_model(model, test_df, "Test")
+    val_metrics = evaluate_model(model, val_df, "Validation", use_calibration=True)
+
+    # Оценка на тесте (с калиброванными вероятностями)
+    print("\n" + "=" * 60)
+    print("ОЦЕНКА НА ТЕСТЕ (с калибровкой)")
+    print("=" * 60)
+    test_metrics = evaluate_model(model, test_df, "Test", use_calibration=True)
 
     # Важность признаков
     print("\n" + "=" * 60)
@@ -332,6 +361,6 @@ if __name__ == '__main__':
 
     # Проверка целевого ROC-AUC
     if metrics['roc_auc'] > 0.68:
-        print(f"\n✓ Целевой ROC-AUC > 0.68 достигнут: {metrics['roc_auc']:.4f}")
+        print(f"\n[OK] Целевой ROC-AUC > 0.68 достигнут: {metrics['roc_auc']:.4f}")
     else:
-        print(f"\n✗ Целевой ROC-AUC > 0.68 не достигнут: {metrics['roc_auc']:.4f}")
+        print(f"\n[FAIL] Целевой ROC-AUC > 0.68 не достигнут: {metrics['roc_auc']:.4f}")
