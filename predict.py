@@ -21,8 +21,8 @@ from datetime import datetime
 from typing import Dict, Tuple
 import sqlite3
 
-from train.calibration import apply_temperature
-from train.utils import load_team_ratings, get_team_rating, step_weight, normalize_team_name
+from ml.calibration import apply_temperature
+from ml.utils import load_team_ratings, get_team_rating, step_weight, normalize_team_name
 from bet_recommendation import evaluate_bet
 
 def load_data(db_path: str = 'cs2_data.db') -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -505,18 +505,6 @@ if __name__ == '__main__':
 
     team1_name = "G2"
     team2_name = "GamerLegion"
-    # map_name = "Ancient"
-    #
-    # result = predict_match(model, team1_name, team2_name, map_name=map_name, is_lan=1)
-    # if result['prediction'] == 1:
-    #     print(f"Winner: {team2_name} with {result['prob_team2']:.2%}")
-    #     print(f"Looser: {team1_name} with {result['prob_team1']:.2%}")
-    # else:
-    #     print(f"Winner: {team1_name} with {result['prob_team1']:.2%}")
-    #     print(f"Looser: {team2_name} with {result['prob_team2']:.2%}")
-
-    # bet_min = evaluate_bet(min(result['prob_team1'], result['prob_team2']), 1.99)
-    # bet_max = evaluate_bet(max(result['prob_team1'], result['prob_team2']), 1.83)
 
     result = predict_for_all_maps(model, team1_name, team2_name)
 
