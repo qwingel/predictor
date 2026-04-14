@@ -241,10 +241,15 @@ def load_yesterday_predictions() -> List[Dict]:
 # ---------------------------------------------------------------------------
 # Generate report
 # ---------------------------------------------------------------------------
-def generate_results_report(results: List[Dict]) -> str:
+def generate_results_report(results: List[Dict]) -> tuple[str, int, int, int, int]:
     """Формирует отчёт сравнения прогнозов и результатов."""
+    date_str = (datetime.now() - timedelta(days=1)).strftime('%d.%m.%Y')
+
+    # Заголовок с рамкой
     lines = [
-        f"📊 Результаты прогнозов — {(datetime.now() - timedelta(days=1)).strftime('%d.%m.%Y')}",
+        "╔════════════════════════════════════════╗",
+        f"║     📊 ОТЧЁТ ПРОГНОЗОВ за {date_str}     ║",
+        "╚════════════════════════════════════════╝",
         ""
     ]
 
@@ -253,17 +258,23 @@ def generate_results_report(results: List[Dict]) -> str:
     correct_maps = 0
     total_maps = 0
 
-    for r in results:
+    # Статистика по картам для группировки
+    maps_stats = []
+
+    for idx, r in enumerate(results):
         t1 = r["team1"]
         t2 = r["team2"]
         pred_winner = r["predicted_winner"]
         pred_prob = r["predicted_prob"]
 
+        # Шапка матча
         lines += [
-            f"⚔️ {t1} vs {t2}",
+            f"🎯 МАТЧ #{idx + 1}",
+            f"┌───────────── {t1}  VS  {t2} ─────────────┐",
+            f"│ Прогноз: {pred_winner} (вероятность {pred_prob:.0%})",
         ]
 
-        # Overall result
+        # Общий результат
         if r.get("actual_score") is not None:
             actual_t1, actual_t2 = r["actual_score"]
             actual_winner = t1 if actual_t1 > actual_t2 else (t2 if actual_t2 > actual_t1 else "Ничья")
@@ -272,64 +283,108 @@ def generate_results_report(results: List[Dict]) -> str:
             if actual_winner == pred_winner:
                 correct_general += 1
                 marker = "✅"
+                status = "ВЕРНО"
             else:
                 marker = "❌"
+                status = "НЕВЕРНО"
 
-            lines.append(f"  {marker} Общий: прогноз {pred_winner} ({pred_prob:.0%}) → результат {actual_winner} ({actual_t1}:{actual_t2})")
+            # Цветовые индикаторы (работает в Telegram)
+            result_line = f"│ {marker} Результат: {status} | {actual_winner} ({actual_t1}:{actual_t2})"
+            if actual_winner == pred_winner:
+                result_line = f"│ 🟢 Результат: {status} | {actual_winner} ({actual_t1}:{actual_t2})"
+            else:
+                result_line = f"│ 🔴 Результат: {status} | {actual_winner} ({actual_t1}:{actual_t2})"
+
+            lines.append(result_line)
         else:
-            lines.append(f"  ⏳ Результат ещё не получен")
-            lines.append("")
-            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append("│ ⏳ Результат ещё не получен")
+            lines.append("└────────────────────────────────────────┘")
             lines.append("")
             continue
 
-        # Map-level comparison
+        # Карты
         if r.get("actual_maps"):
-            map_lines = []
+            lines.append("│")
+            lines.append("│ 🗺️  ДЕТАЛИ ПО КАРТАМ:")
+
+            map_correct = 0
+            map_total = 0
+
             for am in r["actual_maps"]:
                 map_name = am["name"]
-                emoji = MAP_EMOJI.get(map_name, "🗺️")
+                emoji = MAP_EMOJI.get(map_name, "🎮")
 
-                # Actual map result
+                # Актуальный результат карты
                 actual_map_winner = t1 if am["score1"] > am["score2"] else (t2 if am["score2"] > am["score1"] else "?")
                 actual_score_str = f"{am['score1']}:{am['score2']}"
 
-                # Predicted map result
+                # Прогноз карты
                 pred_map = r.get("maps", {}).get(map_name)
                 if pred_map:
                     pred_map_winner = pred_map["winner"]
-                    pred_map_prob = pred_map["prob"]
-                    if pred_map_winner == actual_map_winner:
+                    pred_map_prob = pred_map["winner_prob"]
+                    is_correct = pred_map_winner == actual_map_winner
+
+                    if is_correct:
                         correct_maps += 1
+                        map_correct += 1
                         map_marker = "✅"
+                        color_marker = "🟢"
                     else:
                         map_marker = "❌"
+                        color_marker = "🔴"
+
+                    map_total += 1
                     total_maps += 1
-                    map_lines.append(f"  {emoji} {map_name} {map_marker} прогноз: {pred_map_winner} ({pred_map_prob:.0%}) → результат: {actual_map_winner} ({actual_score_str})")
+
+                    lines.append(
+                        f"│   {emoji} {map_name}: {color_marker} {map_marker} {pred_map_winner} ({pred_map_prob:.0%}) → {actual_map_winner} ({actual_score_str})")
                 else:
-                    map_lines.append(f"  {emoji} {map_name} результат: {actual_map_winner} ({actual_score_str})")
+                    lines.append(f"│   {emoji} {map_name}: ⚪️ нет прогноза → {actual_map_winner} ({actual_score_str})")
 
-            lines.extend(map_lines)
+            # Статистика по картам матча
+            if map_total > 0:
+                map_acc = map_correct / map_total
+                bar = "█" * int(map_acc * 10) + "░" * (10 - int(map_acc * 10))
+                lines.append(f"│   └─ 📊 Точность по картам: {map_correct}/{map_total} ({map_acc:.0%}) {bar}")
 
-        lines += [
-            "",
-            "━━━━━━━━━━━━━━━━━━━━━━━━",
-            ""
-        ]
+            maps_stats.append((map_correct, map_total))
 
-    # Summary
-    lines += [
-        "📈 ИТОГО:",
-    ]
+        lines.append("└────────────────────────────────────────┘")
+        lines.append("")
+
+    # Общая статистика с прогресс-барами
+    lines.append("╔════════════════════════════════════════╗")
+    lines.append("║          📈 ОБЩАЯ СТАТИСТИКА           ║")
+    lines.append("╚════════════════════════════════════════╝")
+    lines.append("")
+
     if total > 0:
         acc = correct_general / total
-        lines.append(f"  Общий результат: {correct_general}/{total} ({acc:.0%})")
+        bar = "█" * int(acc * 10) + "░" * (10 - int(acc * 10))
+        lines.append(f"🏆 ОБЩИЙ РЕЗУЛЬТАТ:")
+        lines.append(f"   {correct_general}/{total} ({acc:.0%}) {bar}")
+        lines.append("")
+
     if total_maps > 0:
         map_acc = correct_maps / total_maps
-        lines.append(f"  Карты: {correct_maps}/{total_maps} ({map_acc:.0%})")
+        bar = "█" * int(map_acc * 10) + "░" * (10 - int(map_acc * 10))
+        lines.append(f"🗺️  ПРОГНОЗЫ ПО КАРТАМ:")
+        lines.append(f"   {correct_maps}/{total_maps} ({map_acc:.0%}) {bar}")
+        lines.append("")
+
+    # Дополнительная статистика
+    if maps_stats:
+        total_match_maps = sum(count for _, count in maps_stats)
+        avg_match_acc = sum(correct / count if count > 0 else 0 for correct, count in maps_stats) / len(maps_stats)
+        lines.append(f"📊 СРЕДНЯЯ ТОЧНОСТЬ ПО МАТЧАМ:")
+        lines.append(f"   {avg_match_acc:.0%} (в среднем за матч)")
+        lines.append("")
 
     lines.append("")
-    lines.append("🤖 predictor bot v3.0")
+    lines.append("🤖 *predictor bot v3.0*")
+    lines.append("_Данные обновлены автоматически_")
+
     return "\n".join(lines), total, correct_general, total_maps, correct_maps
 
 
