@@ -32,7 +32,7 @@ from telegram_publisher import post_to_telegram
 # ---------------------------------------------------------------------------
 PREDICTIONS_LOG = os.path.join(PROJECT_DIR, "data", "predictions_log.json")
 ACCURACY_TRACKER = os.path.join(PROJECT_DIR, "data", "accuracy_tracker.json")
-TELEGRAM_CHANNEL = "-1003764539642"
+TELEGRAM_VIP_CHANNEL = "-1003764539642"
 TELEGRAM_CHANNEL_PUBLIC = "-1003681541532"
 CHROME_BINARY = None  # undetected-chromedriver найдёт сам
 MAP_EMOJI = {
@@ -248,7 +248,7 @@ def generate_results_report(results: List[Dict]) -> tuple[str, int, int, int, in
     # Заголовок с рамкой
     lines = [
         "╔════════════════════════════════════════╗",
-        f"║     📊 ОТЧЁТ ПРОГНОЗОВ за {date_str}     ║",
+       f"║     📊 ОТЧЁТ ПРОГНОЗОВ за {date_str}    ",
         "╚════════════════════════════════════════╝",
         ""
     ]
@@ -322,7 +322,7 @@ def generate_results_report(results: List[Dict]) -> tuple[str, int, int, int, in
                 pred_map = r.get("maps", {}).get(map_name)
                 if pred_map:
                     pred_map_winner = pred_map["winner"]
-                    pred_map_prob = pred_map["winner_prob"]
+                    pred_map_prob = pred_map.get("winner_prob", pred_map.get("prob", 0))
                     is_correct = pred_map_winner == actual_map_winner
 
                     if is_correct:
@@ -355,7 +355,7 @@ def generate_results_report(results: List[Dict]) -> tuple[str, int, int, int, in
 
     # Общая статистика с прогресс-барами
     lines.append("╔════════════════════════════════════════╗")
-    lines.append("║          📈 ОБЩАЯ СТАТИСТИКА           ║")
+    lines.append("║          📈 ОБЩАЯ СТАТИСТИКА            ")
     lines.append("╚════════════════════════════════════════╝")
     lines.append("")
 
@@ -391,36 +391,38 @@ def generate_results_report(results: List[Dict]) -> tuple[str, int, int, int, in
 # ---------------------------------------------------------------------------
 # Simple report (public channel — only match results, no probabilities)
 # ---------------------------------------------------------------------------
-def generate_simple_results_report(results: List[Dict]) -> str:
+def generate_simple_results_report(results, match_index=0) -> str:
+    """
+    Формирует краткий отчёт по РЕЗУЛЬТАТАМ для публичного канала ТОЛЬКО по одному матчу.
+    :param results: список обогащённых прогнозов (с actual_score)
+    :param match_index: индекс матча в списке (0 = первый)
+    """
+    if not results or match_index >= len(results):
+        return "⚠️ Нет данных о результатах."
+
     lines = [
         f"📊 Результаты — {(datetime.now() - timedelta(days=1)).strftime('%d.%m.%Y')}",
         ""
     ]
 
-    total = 0
-    correct = 0
+    r = results[match_index]
+    t1 = r["team1"]
+    t2 = r["team2"]
 
-    for r in results:
-        t1 = r["team1"]
-        t2 = r["team2"]
-
-        if r.get("actual_score") is None:
-            lines += [
-                f"⚔️ {t1} vs {t2}",
-                f"  ⏳ Результат ещё не получен",
-                "",
-                "━━━━━━━━━━━━━━━━━━━━━━━━",
-                ""
-            ]
-            continue
-
+    if r.get("actual_score") is None:
+        lines += [
+            f"⚔️ {t1} vs {t2}",
+            f"  ⏳ Результат ещё не получен",
+            "",
+            "━━━━━━━━━━━━━━━━━━━━━━━━",
+            ""
+        ]
+    else:
         actual_t1, actual_t2 = r["actual_score"]
         actual_winner = t1 if actual_t1 > actual_t2 else (t2 if actual_t2 > actual_t1 else "Ничья")
         pred_winner = r["predicted_winner"]
-        total += 1
 
         if actual_winner == pred_winner:
-            correct += 1
             marker = "✅"
         else:
             marker = "❌"
@@ -430,15 +432,10 @@ def generate_simple_results_report(results: List[Dict]) -> str:
             f"  {marker} {actual_winner} ({actual_t1}:{actual_t2})",
             "",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
+            "Итоги по всем матчам @cyberpredictorbot",
             ""
         ]
 
-    lines.append("📈 ИТОГО: ")
-    if total > 0:
-        acc = correct / total
-        lines.append(f"  {correct}/{total} ({acc:.0%})")
-
-    lines.append("")
     lines.append("🤖 predictor bot v3.0")
     return "\n".join(lines)
 
@@ -525,7 +522,7 @@ def run_results_report():
     # Post to Telegram
     print("\nStep 5: Telegram")
     try:
-        post_to_telegram(TELEGRAM_CHANNEL, report)
+        post_to_telegram(TELEGRAM_VIP_CHANNEL, report)
         print("  VIP channel posted successfully!")
     except Exception as e:
         print(f"  VIP Telegram error: {e}")

@@ -47,7 +47,7 @@ from bet_recommendation import evaluate_bet
 # ---------------------------------------------------------------------------
 RATINGS_PATH = os.path.join(PROJECT_DIR, "data", "top_teams.txt")
 MODEL_PATH = os.path.join(PROJECT_DIR, "models", "model_lgbm_final.pkl")
-TELEGRAM_CHANNEL = "-1003681541532"
+TELEGRAM_CHANNEL_PUBLIC = "-1003681541532"
 TELEGRAM_VIP_CHANNEL = "-1003764539642"
 PREDICTIONS_LOG = os.path.join(PROJECT_DIR, "data", "predictions_log.json")
 ALL_MAPS = ["Inferno", "Mirage", "Dust2", "Ancient", "Anubis", "Nuke", "overpass"]
@@ -370,44 +370,54 @@ def generate_report(matches, predictions) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 3b. Generate simple report (public channel — only favorites)
+# 3b. Generate simple report (public channel — only favorites) TODO: сделать 1 матч
 # ---------------------------------------------------------------------------
-def generate_simple_report(matches, predictions) -> str:
+def generate_simple_report(matches, predictions, match_index=0) -> str:
+    """
+    Формирует краткий отчёт для публичного канала ТОЛЬКО по одному матчу.
+    :param matches: список всех матчей дня
+    :param predictions: словарь прогнозов
+    :param match_index: индекс матча в списке (0 = первый)
+    """
+    if not matches or match_index >= len(matches):
+        return "⚠️ Нет матчей для отчёта."
+
     lines = [
         f"🎯 CS2 Прогнозы — {datetime.now().strftime('%d.%m.%Y')}",
         ""
     ]
 
-    for m in matches:
-        key = f"{m['team1_name']} vs {m['team2_name']}"
-        if key not in predictions:
-            continue
+    m = matches[match_index]
+    key = f"{m['team1_name']} vs {m['team2_name']}"
+    if key not in predictions:
+        return f"⚠️ Прогноз для матча {key} не найден."
 
-        pred = predictions[key]
-        t1 = m["team1_name"]
-        t2 = m["team2_name"]
-        tournament = m.get("tournament", "")
-        format_text = m.get("format_text", "")
-        match_time = m.get("match_time", "")
+    pred = predictions[key]
+    t1 = m["team1_name"]
+    t2 = m["team2_name"]
+    tournament = m.get("tournament", "")
+    format_text = m.get("format_text", "")
+    match_time = m.get("match_time", "")
 
-        gen = pred["general"]
-        gen_winner = gen["winner"]
-        gen_prob = gen["prob_winner"]
+    gen = pred["general"]
+    gen_winner = gen["winner"]
+    gen_prob = gen["prob_winner"]
 
-        if gen_prob >= 0.65:
-            marker = "🟢"
-        elif gen_prob >= 0.55:
-            marker = "🟡"
-        else:
-            marker = "🔴"
+    if gen_prob >= 0.65:
+        marker = "🟢"
+    elif gen_prob >= 0.55:
+        marker = "🟡"
+    else:
+        marker = "🔴"
 
-        lines += [
-            f"🏟️ {tournament}{' | ' + format_text if format_text else ''}{' ⏰ ' + match_time if match_time else ''}",
-            f"⚔️ {t1} vs {t2}",
-            f"🏆 Фаворит: {gen_winner} {marker}",
-            "━━━━━━━━━━━━━━━━━━━━━━━━",
-            ""
-        ]
+    lines += [
+        f"🏟️ {tournament}{' | ' + format_text if format_text else ''}{' ⏰ ' + match_time if match_time else ''}",
+        f"⚔️ {t1} vs {t2}",
+        f"🏆 Фаворит: {gen_winner} {marker}",
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        "Больше матчей и информации по ним @cyberpredictorbot",
+        ""
+    ]
 
     lines.append("🤖 predictor bot v3.0")
     return "\n".join(lines)
@@ -495,7 +505,7 @@ def run_pipeline():
 
     try:
         simple_report = generate_simple_report(matches, predictions)
-        post_to_telegram(TELEGRAM_CHANNEL, simple_report)
+        post_to_telegram(TELEGRAM_CHANNEL_PUBLIC, simple_report)
         print("  Public channel posted successfully!")
     except Exception as e:
         print(f"  Public Telegram error: {e}")
